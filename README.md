@@ -39,22 +39,42 @@ concrete-type = "0.1.0"
 
 ### `#[derive(Concrete)]`
 
-- Map enum variants to concrete types with `#[concrete = "path::to::Type"]` attribute
+This single derive macro can handle both simple enum variants and variants with associated data:
+
+#### For simple enums:
+```rust
+#[derive(Concrete)]
+enum Exchange {
+    #[concrete = "exchanges::Binance"]
+    Binance,
+    #[concrete = "exchanges::Okx"]
+    Okx,
+}
+```
+
 - Generated methods:
   - `concrete_type_id()`: Returns the `TypeId` of the concrete type for a variant
   - `concrete_type_name()`: Returns the name of the concrete type as a string
   - `with_concrete_type()`: Executes a function with knowledge of the concrete type
-- Auto-generated macros for type-level dispatch using the snake_case name of the enum
+- Auto-generated `exchange!` macro for type-level dispatch
 
-### `#[derive(ConcreteConfig)]`
+#### For enums with config data:
+```rust
+#[derive(Concrete)]
+enum ExchangeConfig {
+    #[concrete = "exchanges::Binance"]
+    Binance(exchanges::BinanceConfig),
+    #[concrete = "exchanges::Okx"]
+    Okx(exchanges::OkxConfig),
+}
+```
 
-- Map enum variants with configuration data to concrete types
-- Each variant must have a single tuple field containing the configuration
 - Generated methods:
   - `concrete_type_id()`: Returns the `TypeId` of the concrete type for a variant
   - `concrete_type_name()`: Returns the name of the concrete type as a string
+  - `with_concrete_type()`: Executes a function with the concrete type and config data
   - `config()`: Returns a reference to the configuration data
-- Auto-generated macros for type-level dispatch with access to both the concrete type and config data
+- Auto-generated `exchange_config!` macro for type-level dispatch with config data
 
 ## Examples
 
@@ -83,7 +103,7 @@ let name = exchange!(exchange; ExchangeImpl => {
 ### Enums with Config Data
 
 ```rust
-use concrete_type::ConcreteConfig;
+use concrete_type::Concrete;
 
 // Define concrete types and configuration types
 mod exchanges {
@@ -113,7 +133,7 @@ mod exchanges {
 }
 
 // Define the exchange config enum with concrete type mappings and config data
-#[derive(ConcreteConfig)]
+#[derive(Concrete)]
 enum ExchangeConfig {
     #[concrete = "exchanges::Binance"]
     Binance(exchanges::BinanceConfig),
