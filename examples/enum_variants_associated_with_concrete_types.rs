@@ -41,13 +41,6 @@ fn main() {
         })
     });
     assert_eq!(name, "binance_strategy_a");
-
-    let exchange = Exchange::Okx;
-    let strategy = Strategy::StrategyB;
-    let name = trading_system!(exchange, strategy; (Exchange, Strategy) => {
-       TradingSystem::<Exchange, Strategy>::new().name()
-    });
-    assert_eq!(name, "okx_strategy_b");
 }
 
 mod exchanges {

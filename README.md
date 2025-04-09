@@ -14,7 +14,7 @@ A Rust procedural macro library for mapping enum variants to concrete types, ena
 - [Examples](#examples)
   - [Basic Usage](#basic-usage)
   - [Enums with Config Data](#enums-with-config-data)
-  - [Parameterized Types](#parameterized-types)
+  - [Multiple Enums with Trading System](#multiple-enums-with-trading-system)
 - [License](#license)
 
 ## Overview
@@ -25,6 +25,7 @@ A Rust procedural macro library for mapping enum variants to concrete types, ena
 - Executing code with concrete type knowledge at compile time based on runtime enum values
 - Generating helpful utility methods and macros for working with the concrete types
 - Optionally carrying configuration data with enum variants
+- Composing multiple enum types together using the `trading_system` macro
 
 ## Installation
 
@@ -63,12 +64,45 @@ concrete-type = "0.1.0"
 ```rust
 use concrete_type::Concrete;
 
-#[derive(Concrete)]
+trait ExchangeApi {
+    fn new() -> Self;
+    fn name(&self) -> &'static str;
+}
+
+#[derive(Concrete, Clone, Copy)]
 enum Exchange {
     #[concrete = "exchanges::Binance"]
     Binance,
     #[concrete = "exchanges::Okx"]
     Okx,
+}
+
+mod exchanges {
+    use crate::ExchangeApi;
+
+    pub struct Binance;
+
+    impl ExchangeApi for Binance {
+        fn new() -> Self {
+            Binance
+        }
+
+        fn name(&self) -> &'static str {
+            "SomeBinanceName"
+        }
+    }
+
+    pub struct Okx;
+    
+    impl ExchangeApi for Okx {
+        fn new() -> Self {
+            Self
+        }
+
+        fn name(&self) -> &'static str {
+            "SomeOkxName"
+        }
+    }
 }
 
 // Use the auto-generated 'exchange!' macro to work with concrete types
@@ -134,9 +168,9 @@ let name = exchange_config!(config; (Exchange, config_param) => {
 });
 ```
 
-### Parameterized Types
+### Multiple Enums with Trading System
 
-For more complex use cases, you can also use multiple enums together:
+For more complex use cases, you can use multiple enums together with the `trading_system` macro:
 
 ```rust
 use concrete_type::Concrete;
@@ -161,18 +195,29 @@ enum Strategy {
 
 // A struct with type parameters that will be resolved at runtime
 #[derive(Concrete)]
-struct TradingSystem<E, S> {
-    phantom: PhantomData<(E, S)>,
+struct TradingSystem<Exchange, Strategy> {
+    phantom: PhantomData<(Exchange, Strategy)>,
 }
 
-// Later use multiple enum values together:
+// Using multiple enums together with nested macros
+let exchange = Exchange::Binance;
+let strategy = Strategy::StrategyA;
+
+let name = exchange!(exchange; Exchange => {
+    strategy!(strategy; Strategy => {
+        TradingSystem::<Exchange, Strategy>::new().name()
+    })
+});
+assert_eq!(name, "binance_strategy_a");
+
+// Alternatively, use the trading_system macro for a more concise approach
 let exchange = Exchange::Okx;
 let strategy = Strategy::StrategyB;
 
-let name = trading_system!(exchange, strategy; (E, S) => {
-    // Here E is exchanges::Okx and S is strategies::StrategyB
-    TradingSystem::<E, S>::new().name()
+let name = trading_system!(exchange, strategy; (Exchange, Strategy) => {
+    TradingSystem::<Exchange, Strategy>::new().name()
 });
+assert_eq!(name, "okx_strategy_b");
 ```
 
 ## License

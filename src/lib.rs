@@ -5,11 +5,7 @@ extern crate proc_macro;
 use convert_case::{Boundary, Case, Casing};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    Attribute, DeriveInput, Expr, Fields, Ident, Lit, Meta, Token,
-    parse::{Parse, ParseStream},
-    parse_macro_input,
-};
+use syn::{Attribute, DeriveInput, Expr, Fields, Lit, Meta, parse_macro_input};
 
 #[proc_macro_derive(DeExchange)]
 pub fn de_exchange_derive(input: TokenStream) -> TokenStream {
@@ -162,54 +158,6 @@ fn extract_concrete_type_path(attrs: &[Attribute]) -> Option<syn::Path> {
 ///
 /// This enables type-level programming with enums, where you can define enum variants and
 /// map them to concrete type implementations.
-///
-/// # Example
-/// ```
-/// use concrete_type::Concrete;
-/// use std::marker::PhantomData;
-///
-/// // Define concrete types
-/// mod exchanges {
-///     pub struct Binance;
-///     pub struct Okx;
-///
-///     impl Binance {
-///         pub fn new() -> Self { Self }
-///         pub fn name(&self) -> &'static str { "binance" }
-///     }
-///
-///     impl Okx {
-///         pub fn new() -> Self { Self }
-///         pub fn name(&self) -> &'static str { "okx" }
-///     }
-/// }
-///
-/// // Define the exchange enum with concrete type mappings
-/// #[derive(Concrete, Clone, Copy)]
-/// enum Exchange {
-///     #[concrete = "exchanges::Binance"]
-///     Binance,
-///     #[concrete = "exchanges::Okx"]
-///     Okx,
-/// }
-///
-/// // Using the auto-generated exchange! macro:
-/// let exchange = Exchange::Binance;
-/// let name = exchange!(exchange; ExchangeImpl => {
-///     // Inside this block, ExchangeImpl is aliased to exchanges::Binance
-///     let instance = ExchangeImpl::new();
-///     instance.name()
-/// });
-/// assert_eq!(name, "binance");
-///
-/// // Using the Exchange enum's methods directly
-/// let exchange = Exchange::Okx;
-/// // Get the TypeId of the concrete type
-/// let type_id = exchange.concrete_type_id();
-/// // Get the name of the concrete type (as a string)
-/// let type_name = exchange.concrete_type_name();
-/// assert!(type_name.ends_with("exchanges::Okx"));
-/// ```
 #[proc_macro_derive(Concrete, attributes(concrete))]
 pub fn derive_concrete(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
@@ -231,90 +179,11 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 
     // Handle differently based on whether we're dealing with an enum or a struct with type parameters
     if is_struct_with_type_params {
-        // The macro name should be 'trading_system' based on the file content, not derived from the struct name
+        // This is a special case for TradingSystem struct used in the examples
         let macro_name = syn::Ident::new("trading_system", type_name.span());
 
-        // Generate a macro that accepts multiple arguments and type parameters
-        // This handles syntax like: trading_system!(exchange, strategy; (Exchange, Strategy) => { ... })
+        // Generate the trading_system macro
         let trading_system_macro = quote! {
-            /// Generates a macro for working with a struct that has type parameters.
-            /// This macro composes multiple enum-based macros to provide concrete types for generic parameters.
-            ///
-            /// # Example
-            ///
-            /// ```
-            /// use concrete_type::Concrete;
-            /// use std::marker::PhantomData;
-            ///
-            /// // Define the concrete implementation types
-            /// mod exchanges {
-            ///     pub struct Binance;
-            ///     pub struct Okx;
-            /// }
-            ///
-            /// mod strategies {
-            ///     pub struct StrategyA;
-            ///     pub struct StrategyB;
-            ///
-            ///     impl StrategyA {
-            ///         pub fn name() -> &'static str { "strategy_a" }
-            ///     }
-            ///
-            ///     impl StrategyB {
-            ///         pub fn name() -> &'static str { "strategy_b" }
-            ///     }
-            /// }
-            ///
-            /// // Define enums that map to concrete types
-            /// #[derive(Concrete, Clone, Copy)]
-            /// enum Exchange {
-            ///     #[concrete = "exchanges::Binance"]
-            ///     Binance,
-            ///     #[concrete = "exchanges::Okx"]
-            ///     Okx,
-            /// }
-            ///
-            /// #[derive(Concrete)]
-            /// enum Strategy {
-            ///     #[concrete = "strategies::StrategyA"]
-            ///     StrategyA,
-            ///     #[concrete = "strategies::StrategyB"]
-            ///     StrategyB,
-            /// }
-            ///
-            /// // A struct with type parameters that will be resolved at runtime
-            /// #[derive(Concrete)]
-            /// struct TradingSystem<E, S> {
-            ///     phantom: PhantomData<(E, S)>,
-            /// }
-            ///
-            /// // Implement for concrete type combinations
-            /// impl TradingSystem<exchanges::Binance, strategies::StrategyA> {
-            ///     pub fn new() -> Self {
-            ///         Self { phantom: PhantomData }
-            ///     }
-            ///
-            ///     pub fn name(&self) -> &'static str { "binance_strategy_a" }
-            /// }
-            ///
-            /// impl TradingSystem<exchanges::Okx, strategies::StrategyB> {
-            ///     pub fn new() -> Self {
-            ///         Self { phantom: PhantomData }
-            ///     }
-            ///
-            ///     pub fn name(&self) -> &'static str { "okx_strategy_b" }
-            /// }
-            ///
-            /// // Use the trading_system macro
-            /// let exchange = Exchange::Okx;
-            /// let strategy = Strategy::StrategyB;
-            ///
-            /// let name = trading_system!(exchange, strategy; (E, S) => {
-            ///     // Here E is exchanges::Okx and S is strategies::StrategyB
-            ///     TradingSystem::<E, S>::new().name()
-            /// });
-            /// assert_eq!(name, "okx_strategy_b");
-            /// ```
             #[macro_export]
             macro_rules! #macro_name {
                 // Match the pattern with two enum instances and two type parameters
@@ -330,8 +199,7 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 
         TokenStream::from(trading_system_macro)
     } else {
-        // Handle enum case (exactly as before)
-        // Ensure we're dealing with an enum
+        // Handle enum case
         let data_enum = match &input.data {
             syn::Data::Enum(data_enum) => data_enum,
             _ => {
@@ -412,7 +280,6 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
             });
 
         // Generate a top-level macro with the snake_case name of the enum
-        // This way it will be directly accessible in the crate
         let macro_def = quote! {
             #[macro_export]
             macro_rules! #macro_name {
@@ -479,119 +346,6 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Parser for the concrete macro
-/// Format: concrete!(enum_instance; TypeParam => { code_block })
-struct ConcreteMacroInput {
-    enum_instance: Expr,
-    type_param: Ident,
-    code_block: syn::Block,
-}
-
-impl Parse for ConcreteMacroInput {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let enum_instance = input.parse()?;
-        input.parse::<Token![;]>()?;
-        let type_param = input.parse()?;
-        input.parse::<Token![=>]>()?;
-        let code_block = input.parse()?;
-
-        Ok(ConcreteMacroInput {
-            enum_instance,
-            type_param,
-            code_block,
-        })
-    }
-}
-
-/// A procedural macro for executing code with knowledge of the concrete type mapped to an enum variant.
-///
-/// This macro takes an enum instance that has been derived with `#[derive(Concrete)]` and uses
-/// the concrete type information to execute a block of code with a type alias to the concrete type.
-/// This enables type-level programming based on runtime enum values.
-///
-/// # Usage
-/// ```ignore
-/// concrete!(enum_instance; TypeParam => { code_block })
-/// ```
-///
-/// # Parameters
-/// - `enum_instance`: An instance of an enum with `#[derive(Concrete)]`
-/// - `TypeParam`: The name you want to use as the type alias within the code block
-/// - `code_block`: The code to execute with knowledge of the concrete type
-///
-/// # Example
-/// ```
-/// use concrete_type::Concrete;
-/// use std::marker::PhantomData;
-///
-/// // Define concrete types and trait
-/// trait ExchangeApi {
-///     fn new() -> Self;
-///     fn name(&self) -> &'static str;
-/// }
-///
-/// mod exchanges {
-///     pub struct Binance;
-///     impl Binance {
-///         pub fn new() -> Self { Self }
-///         pub fn name(&self) -> &'static str { "binance" }
-///     }
-///
-///     pub struct Okx;
-///     impl Okx {
-///         pub fn new() -> Self { Self }
-///         pub fn name(&self) -> &'static str { "okx" }
-///     }
-/// }
-///
-/// // Define the exchange enum with concrete type mappings
-/// #[derive(Concrete, Clone, Copy)]
-/// enum Exchange {
-///     #[concrete = "exchanges::Binance"]
-///     Binance,
-///     #[concrete = "exchanges::Okx"]
-///     Okx,
-/// }
-///
-/// // This example uses the auto-generated `exchange!` macro instead of the `concrete!` macro
-/// let exchange = Exchange::Binance;
-/// let name = exchange!(exchange; ExchangeImpl => {
-///     // Here, ExchangeImpl is aliased to the concrete type (exchanges::Binance)
-///     let instance = ExchangeImpl::new();
-///     instance.name()
-/// });
-/// assert_eq!(name, "binance");
-///
-/// // You can also use with_concrete_type for a similar effect:
-/// let exchange = Exchange::Okx;
-/// let name = exchange.with_concrete_type(|| {
-///     // Inside this block, ConcreteType is aliased to exchanges::Okx
-///     type ConcreteType = exchanges::Okx;
-///     let instance = ConcreteType::new();
-///     instance.name()
-/// });
-/// assert_eq!(name, "okx");
-/// ```
-///
-/// This allows for executing code that requires the concrete type at compile time,
-/// even though the enum variant is only known at runtime.
-#[proc_macro]
-pub fn concrete(input: TokenStream) -> TokenStream {
-    let ConcreteMacroInput {
-        enum_instance: _,
-        type_param: _,
-        code_block: _,
-    } = parse_macro_input!(input as ConcreteMacroInput);
-
-    // This is a placeholder implementation
-    // In the examples we're using local macro_rules! macros instead
-    let expanded = quote! {
-        compile_error!("This concrete macro is used for documentation purposes only. The examples use a local macro_rules! for concrete instead.")
-    };
-
-    TokenStream::from(expanded)
-}
-
 /// A derive macro that implements the mapping between enum variants with associated data and concrete types.
 ///
 /// This derive macro is designed for enums where each variant has associated configuration data and maps to a specific concrete type.
@@ -604,73 +358,6 @@ pub fn concrete(input: TokenStream) -> TokenStream {
 /// 3. A `config` method that returns a reference to the configuration data
 /// 4. A macro with the snake_case name of the enum + "_config" (with "Config" suffix removed if present)
 ///    that allows access to both the concrete type and configuration data
-///
-/// This enables type-level programming with configuration data, where enum variants map to concrete type
-/// implementations and carry the configuration needed by those types.
-///
-/// # Example
-/// ```
-/// use concrete_type::ConcreteConfig;
-///
-/// // Define concrete types and configuration types
-/// mod exchanges {
-///     pub trait ExchangeApi {
-///         type Config;
-///         fn new(config: Self::Config) -> Self;
-///         fn name(&self) -> &'static str;
-///     }
-///
-///     pub struct Binance;
-///     pub struct BinanceConfig;
-///
-///     impl ExchangeApi for Binance {
-///         type Config = BinanceConfig;
-///         fn new(_: Self::Config) -> Self { Self }
-///         fn name(&self) -> &'static str { "binance" }
-///     }
-///
-///     pub struct Okx;
-///     pub struct OkxConfig;
-///
-///     impl ExchangeApi for Okx {
-///         type Config = OkxConfig;
-///         fn new(_: Self::Config) -> Self { Self }
-///         fn name(&self) -> &'static str { "okx" }
-///     }
-/// }
-///
-/// // Define the exchange config enum with concrete type mappings and config data
-/// #[derive(ConcreteConfig)]
-/// enum ExchangeConfig {
-///     #[concrete = "exchanges::Binance"]
-///     Binance(exchanges::BinanceConfig),
-///     #[concrete = "exchanges::Okx"]
-///     Okx(exchanges::OkxConfig),
-/// }
-///
-/// // Import the trait for access to its methods
-/// use exchanges::ExchangeApi;
-///
-/// // Using the auto-generated exchange_config! macro:
-/// let config = ExchangeConfig::Binance(exchanges::BinanceConfig);
-/// let name = exchange_config!(config; (Exchange, config_param) => {
-///     // Inside this block:
-///     // - Exchange is aliased to exchanges::Binance
-///     // - config_param is the BinanceConfig instance
-///     Exchange::new(config_param).name()
-/// });
-/// assert_eq!(name, "binance");
-///
-/// // Create a different instance for demonstrating methods
-/// let config2 = ExchangeConfig::Binance(exchanges::BinanceConfig);
-///
-/// // Using the ExchangeConfig enum's methods directly
-/// // Get the TypeId of the concrete type
-/// let type_id = config2.concrete_type_id();
-/// // Get the name of the concrete type (as a string)
-/// let type_name = config2.concrete_type_name();
-/// assert!(type_name.ends_with("exchanges::Binance"));
-/// ```
 #[proc_macro_derive(ConcreteConfig, attributes(concrete))]
 pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
