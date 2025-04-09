@@ -1,5 +1,3 @@
-#![doc(html_root_url = "https://docs.rs/concrete-type")]
-
 extern crate proc_macro;
 
 use convert_case::{Boundary, Case, Casing};
@@ -220,8 +218,6 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 
     // Create a snake_case version of the type name for the macro_rules! name
     let type_name_str = type_name.to_string();
-    let macro_name_str = type_name_str.to_case(Case::Snake);
-    let macro_name = syn::Ident::new(&macro_name_str, type_name.span());
 
     // Check if we're dealing with a struct that has type parameters
     let is_struct_with_type_params = match &input.data {
@@ -330,7 +326,7 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 
         TokenStream::from(trading_system_macro)
     } else {
-        // Handle enum case (exactly as before)
+        // Handle enum case
         // Ensure we're dealing with an enum
         let data_enum = match &input.data {
             syn::Data::Enum(data_enum) => data_enum,
@@ -346,9 +342,30 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 
         // Extract variant names and their concrete types
         let mut variant_mappings = Vec::new();
+        let mut has_data = false;
 
         for variant in &data_enum.variants {
             let variant_name = &variant.ident;
+
+            // Check if any variant has data
+            if !variant.fields.is_empty() {
+                match &variant.fields {
+                    Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                        has_data = true;
+                    }
+                    _ => {
+                        return syn::Error::new_spanned(
+                            variant_name,
+                            format!(
+                                "Enum variant `{}` must have exactly one unnamed field for the config",
+                                variant_name
+                            ),
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                }
+            }
 
             // Extract the concrete type path from the variant's attributes
             if let Some(concrete_type) = extract_concrete_type_path(&variant.attrs) {
@@ -367,13 +384,35 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
             }
         }
 
+        // Decide which macro name to use based on whether variants have data
+        let macro_name_str = if has_data {
+            // Strip "Config" suffix if present for cleaner macro names
+            let base_name = if type_name_str.ends_with("Config") {
+                &type_name_str[0..type_name_str.len() - 6]
+            } else {
+                &type_name_str
+            };
+            format!("{}_config", base_name.to_case(Case::Snake))
+        } else {
+            type_name_str.to_case(Case::Snake)
+        };
+        let macro_name = syn::Ident::new(&macro_name_str, type_name.span());
+
         // Generate match arms for the concrete type mapping
         let match_arms = variant_mappings
             .iter()
             .map(|(variant_name, concrete_type)| {
-                quote! {
-                    #type_name::#variant_name => {
-                        type_id::<#concrete_type>()
+                if has_data {
+                    quote! {
+                        #type_name::#variant_name(_) => {
+                            type_id::<#concrete_type>()
+                        }
+                    }
+                } else {
+                    quote! {
+                        #type_name::#variant_name => {
+                            type_id::<#concrete_type>()
+                        }
                     }
                 }
             });
@@ -382,8 +421,23 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         let type_name_arms = variant_mappings
             .iter()
             .map(|(variant_name, concrete_type)| {
+                if has_data {
+                    quote! {
+                        #type_name::#variant_name(_) => type_name_of::<#concrete_type>()
+                    }
+                } else {
+                    quote! {
+                        #type_name::#variant_name => type_name_of::<#concrete_type>()
+                    }
+                }
+            });
+
+        // Generate match arms for the config method if enum has data
+        let config_arms = variant_mappings
+            .iter()
+            .map(|(variant_name, _concrete_type)| {
                 quote! {
-                    #type_name::#variant_name => type_name_of::<#concrete_type>()
+                    #type_name::#variant_name(config) => config
                 }
             });
 
@@ -391,10 +445,19 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         let type_alias_arms = variant_mappings
             .iter()
             .map(|(variant_name, concrete_type)| {
-                quote! {
-                    #type_name::#variant_name => {
-                        type ConcreteType = #concrete_type;
-                        f()
+                if has_data {
+                    quote! {
+                        #type_name::#variant_name(config) => {
+                            type ConcreteType = #concrete_type;
+                            f(config)
+                        }
+                    }
+                } else {
+                    quote! {
+                        #type_name::#variant_name => {
+                            type ConcreteType = #concrete_type;
+                            f()
+                        }
                     }
                 }
             });
@@ -403,25 +466,89 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         let macro_match_arms = variant_mappings
             .iter()
             .map(|(variant_name, concrete_type)| {
-                quote! {
-                    #type_name::#variant_name => {
-                        type $type_param = #concrete_type;
-                        $code_block
+                if has_data {
+                    quote! {
+                        #type_name::#variant_name(config) => {
+                            type $type_param = #concrete_type;
+                            let $config_param = config;
+                            $code_block
+                        }
+                    }
+                } else {
+                    quote! {
+                        #type_name::#variant_name => {
+                            type $type_param = #concrete_type;
+                            $code_block
+                        }
                     }
                 }
             });
 
-        // Generate a top-level macro with the snake_case name of the enum
-        // This way it will be directly accessible in the crate
-        let macro_def = quote! {
-            #[macro_export]
-            macro_rules! #macro_name {
-                ($enum_instance:expr; $type_param:ident => $code_block:block) => {
-                    match $enum_instance {
-                        #(#macro_match_arms),*
-                    }
-                };
+        // Generate a top-level macro with the appropriate name and pattern
+        let macro_def = if has_data {
+            quote! {
+                #[macro_export]
+                macro_rules! #macro_name {
+                    ($enum_instance:expr; ($type_param:ident, $config_param:ident) => $code_block:block) => {
+                        match $enum_instance {
+                            #(#macro_match_arms),*
+                        }
+                    };
+                }
             }
+        } else {
+            quote! {
+                #[macro_export]
+                macro_rules! #macro_name {
+                    ($enum_instance:expr; $type_param:ident => $code_block:block) => {
+                        match $enum_instance {
+                            #(#macro_match_arms),*
+                        }
+                    };
+                }
+            }
+        };
+
+        // Generate the with_concrete_type method with appropriate signature
+        let with_concrete_type_method = if has_data {
+            quote! {
+                /// Executes a function with the concrete type associated with this enum variant
+                /// and provides access to the config data
+                pub fn with_concrete_type<F, R>(&self, f: F) -> R
+                where
+                    F: FnOnce(&dyn std::any::Any) -> R,
+                {
+                    match self {
+                        #(#type_alias_arms),*
+                    }
+                }
+            }
+        } else {
+            quote! {
+                /// Executes a function with the concrete type associated with this enum variant
+                pub fn with_concrete_type<F, R>(&self, f: F) -> R
+                where
+                    F: FnOnce() -> R,
+                {
+                    match self {
+                        #(#type_alias_arms),*
+                    }
+                }
+            }
+        };
+
+        // Generate the config method if enum has data
+        let config_method = if has_data {
+            quote! {
+                /// Get config data from the enum variant
+                pub fn config(&self) -> &dyn std::any::Any {
+                    match self {
+                        #(#config_arms),*
+                    }
+                }
+            }
+        } else {
+            quote! {}
         };
 
         // Generate the methods implementation
@@ -453,15 +580,9 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                /// Executes a function with the concrete type associated with this enum variant
-                pub fn with_concrete_type<F, R>(&self, f: F) -> R
-                where
-                    F: for<'a> Fn() -> R,
-                {
-                    match self {
-                        #(#type_alias_arms),*
-                    }
-                }
+                #with_concrete_type_method
+
+                #config_method
             }
         };
 
@@ -673,177 +794,6 @@ pub fn concrete(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_derive(ConcreteConfig, attributes(concrete))]
 pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
-    // Parse the input tokens into a syntax tree
-    let input = parse_macro_input!(input as DeriveInput);
-
-    // Extract the name of the type
-    let type_name = &input.ident;
-
-    // Create a snake_case version of the type name for the macro_rules! name
-    let type_name_str = type_name.to_string();
-    // Strip "Config" suffix if present for cleaner macro names
-    let base_name = if type_name_str.ends_with("Config") {
-        &type_name_str[0..type_name_str.len() - 6]
-    } else {
-        &type_name_str
-    };
-    let macro_name_str = format!("{}_config", base_name.to_case(Case::Snake));
-    let macro_name = syn::Ident::new(&macro_name_str, type_name.span());
-
-    // Ensure we're dealing with an enum
-    let data_enum = match &input.data {
-        syn::Data::Enum(data_enum) => data_enum,
-        _ => {
-            return syn::Error::new_spanned(
-                type_name,
-                "ConcreteConfig can only be derived for enums with data",
-            )
-            .to_compile_error()
-            .into();
-        }
-    };
-
-    // Extract variant names, their concrete types, and field types
-    let mut variant_mappings = Vec::new();
-
-    for variant in &data_enum.variants {
-        let variant_name = &variant.ident;
-
-        // Extract the concrete type path from the variant's attributes
-        if let Some(concrete_type) = extract_concrete_type_path(&variant.attrs) {
-            // Verify the variant has a tuple field
-            match &variant.fields {
-                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                    variant_mappings.push((variant_name, concrete_type));
-                }
-                _ => {
-                    return syn::Error::new_spanned(
-                        variant_name,
-                        format!(
-                            "Enum variant `{}` must have exactly one unnamed field for the config",
-                            variant_name
-                        ),
-                    )
-                    .to_compile_error()
-                    .into();
-                }
-            }
-        } else {
-            // Variant is missing the #[concrete = "..."] attribute
-            return syn::Error::new_spanned(
-                variant_name,
-                format!(
-                    "Enum variant `{}` is missing the #[concrete = \"...\"] attribute",
-                    variant_name
-                ),
-            )
-            .to_compile_error()
-            .into();
-        }
-    }
-
-    // Generate match arms for the concrete type ID
-    let match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => {
-                    type_id::<#concrete_type>()
-                }
-            }
-        });
-
-    // Generate match arms for the concrete type name
-    let type_name_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => type_name_of::<#concrete_type>()
-            }
-        });
-
-    // Generate match arms for the config method
-    let config_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, _concrete_type)| {
-            quote! {
-                #type_name::#variant_name(config) => config
-            }
-        });
-
-    // Generate match arms for the macro_rules! version
-    let macro_match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(config) => {
-                    type $type_param = #concrete_type;
-                    let $config_param = config;
-                    $code_block
-                }
-            }
-        });
-
-    // Create the macro name
-
-    // Generate a top-level macro with the snake_case name of the enum + "_config"
-    let macro_def = quote! {
-        #[macro_export]
-        macro_rules! #macro_name {
-            ($enum_instance:expr; ($type_param:ident, $config_param:ident) => $code_block:block) => {
-                match $enum_instance {
-                    #(#macro_match_arms),*
-                }
-            };
-        }
-    };
-
-    // Generate the methods implementation
-    let methods_impl = quote! {
-        impl #type_name {
-            /// Returns the TypeId of the concrete type associated with this enum variant
-            pub fn concrete_type_id(&self) -> std::any::TypeId {
-                use std::any::TypeId;
-
-                fn type_id<T: 'static>() -> TypeId {
-                    TypeId::of::<T>()
-                }
-
-                match self {
-                    #(#match_arms),*
-                }
-            }
-
-            /// Returns the name of the concrete type associated with this enum variant
-            pub fn concrete_type_name(&self) -> &'static str {
-                use std::any::type_name;
-
-                fn type_name_of<T: 'static>() -> &'static str {
-                    type_name::<T>()
-                }
-
-                match self {
-                    #(#type_name_arms),*
-                }
-            }
-
-            // Get config data from the enum variant
-            pub fn config(&self) -> &dyn std::any::Any {
-                match self {
-                    #(#config_arms),*
-                }
-            }
-        }
-    };
-
-    // Combine the macro definition and methods implementation
-    let expanded = quote! {
-        // Define the macro
-        #macro_def
-
-        // Implement methods on the enum
-        #methods_impl
-    };
-
-    TokenStream::from(expanded)
+    // This is now deprecated - we'll use the enhanced derive_concrete instead
+    derive_concrete(input)
 }
