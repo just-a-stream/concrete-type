@@ -13,6 +13,12 @@ enum Exchange {
     Okx,
 }
 
+mod exchanges {
+    pub struct Binance;
+
+    pub struct Okx;
+}
+
 #[derive(Concrete)]
 enum Strategy {
     #[concrete = "strategies::StrategyA"]
@@ -22,13 +28,14 @@ enum Strategy {
     StrategyB,
 }
 
-trait ExchangeApi {
-    fn new() -> Self;
-    fn name(&self) -> &'static str;
+pub mod strategies {
+    pub struct StrategyA;
+
+    pub struct StrategyB;
 }
 
-pub trait TradingStrategy {
-    fn name() -> &'static str;
+pub struct TradingSystem<Exchange, Strategy> {
+    phantom: PhantomData<(Exchange, Strategy)>,
 }
 
 fn main() {
@@ -44,65 +51,13 @@ fn main() {
 
     let exchange = Exchange::Okx;
     let strategy = Strategy::StrategyB;
-    let name = trading_system!(exchange, strategy; (Exchange, Strategy) => {
-       TradingSystem::<Exchange, Strategy>::new().name()
+
+    let name = exchange!(exchange; Exchange => {
+        strategy!(strategy; Strategy => {
+            TradingSystem::<Exchange, Strategy>::new().name()
+        })
     });
     assert_eq!(name, "okx_strategy_b");
-}
-
-mod exchanges {
-    use crate::ExchangeApi;
-
-    pub struct Binance;
-
-    impl ExchangeApi for Binance {
-        fn new() -> Self {
-            Binance
-        }
-
-        fn name(&self) -> &'static str {
-            "SomeBinanceName"
-        }
-    }
-
-    pub struct Okx;
-
-    impl ExchangeApi for Okx {
-        fn new() -> Self {
-            Self
-        }
-
-        fn name(&self) -> &'static str {
-            "SomeOkxName"
-        }
-    }
-}
-
-pub mod strategies {
-    use crate::TradingStrategy;
-
-    pub struct StrategyA;
-
-    impl TradingStrategy for StrategyA {
-        fn name() -> &'static str {
-            "strategy_a"
-        }
-    }
-
-    pub struct StrategyB;
-
-    impl TradingStrategy for StrategyB {
-        fn name() -> &'static str {
-            "strategy_b"
-        }
-    }
-}
-
-// Concrete on an enum with type parameters will create a macro_rules in the following format:
-// trading_system_config!(exchange_enum, strategy_enum; (Exchange, Strategy) => { ... })
-#[derive(Concrete)]
-pub struct TradingSystem<Exchange, Strategy> {
-    phantom: PhantomData<(Exchange, Strategy)>,
 }
 
 impl TradingSystem<Binance, StrategyA> {
