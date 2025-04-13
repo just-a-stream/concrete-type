@@ -1,23 +1,16 @@
-[package]
-name = "concrete-type"
-version = "0.2.0"
-edition = "2024"
-license = "MIT"
-authors = ["JustAStream"]
-description = "A procedural macro crate for mapping enum variants to concrete types, enabling type-level programming based on runtime values"
-repository = "https://github.com/justastream/concrete-type"
-documentation = "https://docs.rs/concrete-type"
-readme = "README.md"
-keywords = ["macros", "enum", "type-level", "proc-macro", "static-dispatch"]
-categories = ["rust-patterns", "development-tools::procedural-macro-helpers", "no-std::no-alloc"]
+[workspace]
+members = [
+    "concrete-type",
+    "concrete-type-rules",
+]
+resolver = "3"
 
-[lib]
-proc-macro = true
+[workspace.dependencies]
+# Concrete Type Ecosystem
+concrete-type = { path = "./concrete-type", version = "0.2.0" }
 
-[dependencies]
-# Macro
-syn = { version = "2.0.1", features = ["full", "extra-traits"] }
-quote = "1.0.4"
-
-# Misc
+# Other
+syn = { version = "2.0.100", features = ["full", "extra-traits"] }
+quote = "1.0.40"
 convert_case = "0.8.0"
+paste = "1.0.15"

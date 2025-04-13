@@ -1,4 +1,107 @@
 #![doc(html_root_url = "https://docs.rs/concrete-type")]
+#![warn(missing_docs)]
+
+//! # Concrete Type
+//!
+//! A procedural macro library for mapping enum variants to concrete types.
+//!
+//! This crate provides two main derive macros:
+//!
+//! - [`Concrete`] - For enums where each variant maps to a specific concrete type
+//! - [`ConcreteConfig`] - For enums where each variant has associated configuration data
+//!   and maps to a specific concrete type
+//!
+//! These macros enable type-level programming based on runtime enum values by generating
+//! helper methods and macros that provide access to the concrete types associated with
+//! enum variants.
+//!
+//! ## Examples
+//!
+//! ### Basic Usage with `Concrete`
+//!
+//! ```rust,ignore
+//! use concrete_type::Concrete;
+//!
+//! #[derive(Concrete, Clone, Copy)]
+//! enum Exchange {
+//!     #[concrete = "exchanges::Binance"]
+//!     Binance,
+//!     #[concrete = "exchanges::Coinbase"]
+//!     Coinbase,
+//! }
+//!
+//! mod exchanges {
+//!     pub struct Binance;
+//!     pub struct Coinbase;
+//!     
+//!     impl Binance {
+//!         pub fn new() -> Self { Binance }
+//!         pub fn name(&self) -> &'static str { "binance" }
+//!     }
+//!     
+//!     impl Coinbase {
+//!         pub fn new() -> Self { Coinbase }
+//!         pub fn name(&self) -> &'static str { "coinbase" }
+//!     }
+//! }
+//!
+//! // Use the auto-generated exchange! macro for type-level dispatch
+//! let exchange = Exchange::Binance;
+//! let name = exchange!(exchange; ExchangeImpl => {
+//!     // ExchangeImpl is aliased to the concrete type (exchanges::Binance)
+//!     let instance = ExchangeImpl::new();
+//!     instance.name()
+//! });
+//! assert_eq!(name, "binance");
+//! ```
+//!
+//! ### Using `ConcreteConfig` with Configuration Data
+//!
+//! ```rust,ignore
+//! use concrete_type::ConcreteConfig;
+//!
+//! // Define concrete types and configuration types
+//! mod exchanges {
+//!     pub trait ExchangeApi {
+//!         type Config;
+//!         fn new(config: Self::Config) -> Self;
+//!         fn name(&self) -> &'static str;
+//!     }
+//!
+//!     pub struct Binance;
+//!     pub struct BinanceConfig {
+//!         pub api_key: String,
+//!     }
+//!
+//!     impl ExchangeApi for Binance {
+//!         type Config = BinanceConfig;
+//!         fn new(_: Self::Config) -> Self { Self }
+//!         fn name(&self) -> &'static str { "binance" }
+//!     }
+//! }
+//!
+//! // Define the enum with concrete type mappings and config data
+//! #[derive(ConcreteConfig)]
+//! enum ExchangeConfig {
+//!     #[concrete = "exchanges::Binance"]
+//!     Binance(exchanges::BinanceConfig),
+//! }
+//!
+//! // Using the auto-generated macro with access to both type and config
+//! let config = ExchangeConfig::Binance(
+//!     exchanges::BinanceConfig { api_key: "secret".to_string() }
+//! );
+//!
+//! let name = exchange_config!(config; (Exchange, cfg) => {
+//!     // Inside this block:
+//!     // - Exchange is the concrete type (exchanges::Binance)
+//!     // - cfg is the configuration instance (BinanceConfig)
+//!     use exchanges::ExchangeApi;
+//!     Exchange::new(cfg).name()
+//! });
+//! ```
+//!
+//! See the crate documentation and examples for more details.
 
 extern crate proc_macro;
 
@@ -25,16 +128,36 @@ fn extract_concrete_type_path(attrs: &[Attribute]) -> Option<syn::Path> {
 
 /// A derive macro that implements the mapping between enum variants and concrete types.
 ///
-/// This derive macro is designed for enums where each variant maps to a specific concrete type.
+/// This macro is designed for enums where each variant maps to a specific concrete type.
 /// Each variant must be annotated with the `#[concrete = "path::to::Type"]` attribute that
 /// specifies the concrete type that the variant represents.
 ///
-/// The macro generates:
-/// 1. A `concrete_type_id` method that returns the `TypeId` of the concrete type for a variant
-/// 2. A `concrete_type_name` method that returns the name of the concrete type as a string
-/// 3. A `with_concrete_type` method that executes a function with knowledge of the concrete type
-/// 4. A macro with the snake_case name of the enum (e.g., `exchange!` for `Exchange`,
-///    `strategy!` for `Strategy`) that can be used to execute code with the concrete type
+/// # Generated Code
+///
+/// The macro generates a macro with the snake_case name of the enum
+/// (e.g., `exchange!` for `Exchange`, `strategy_kind!` for `StrategyKind`) that can be used
+/// to execute code with the concrete type.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use concrete_type::Concrete;
+///
+/// #[derive(Concrete)]
+/// enum StrategyKind {
+///     #[concrete = "strategies::StrategyA"]
+///     StrategyA,
+///     #[concrete = "strategies::StrategyB"]
+///     StrategyB,
+/// }
+///
+/// // The generated macro is named after the enum in snake_case
+/// let strategy = StrategyKind::StrategyA;
+/// let result = strategy_kind!(strategy; T => {
+///     // T is aliased to strategies::StrategyA here
+///     std::any::type_name::<T>()
+/// });
+/// ```
 ///
 /// This enables type-level programming with enums, where you can define enum variants and
 /// map them to concrete type implementations.
@@ -87,38 +210,6 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate match arms for the concrete type mapping
-    let match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => {
-                    type_id::<#concrete_type>()
-                }
-            }
-        });
-
-    // Generate match arms for the concrete type name
-    let type_name_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => type_name_of::<#concrete_type>()
-            }
-        });
-
-    // Generate match arms for the concrete type aliases
-    let type_alias_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => {
-                    type ConcreteType = #concrete_type;
-                    f()
-                }
-            }
-        });
-
     // Generate match arms for the macro_rules! version
     let macro_match_arms = variant_mappings
         .iter()
@@ -143,72 +234,57 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate the methods implementation
-    let methods_impl = quote! {
-        impl #type_name {
-            /// Returns the TypeId of the concrete type associated with this enum variant
-            pub fn concrete_type_id(&self) -> std::any::TypeId {
-                use std::any::TypeId;
-
-                fn type_id<T: 'static>() -> TypeId {
-                    TypeId::of::<T>()
-                }
-
-                match self {
-                    #(#match_arms),*
-                }
-            }
-
-            /// Returns the name of the concrete type associated with this enum variant
-            pub fn concrete_type_name(&self) -> &'static str {
-                use std::any::type_name;
-
-                fn type_name_of<T: 'static>() -> &'static str {
-                    type_name::<T>()
-                }
-
-                match self {
-                    #(#type_name_arms),*
-                }
-            }
-
-            /// Executes a function with the concrete type associated with this enum variant
-            pub fn with_concrete_type<F, R>(&self, f: F) -> R
-            where
-                F: for<'a> Fn() -> R,
-            {
-                match self {
-                    #(#type_alias_arms),*
-                }
-            }
-        }
-    };
-
     // Combine the macro definition and methods implementation
     let expanded = quote! {
         // Define the macro outside any module to make it directly accessible
         #macro_def
-
-        // Implement methods on the enum
-        #methods_impl
     };
 
     // Return the generated implementation
     TokenStream::from(expanded)
 }
 
-/// A derive macro that implements the mapping between enum variants with associated data and concrete types.
+/// A derive macro that implements the mapping between enum variants with associated data and
+/// concrete types.
 ///
-/// This derive macro is designed for enums where each variant has associated configuration data and maps to a specific concrete type.
-/// Each variant must be annotated with the `#[concrete = "path::to::Type"]` attribute and contain a single tuple field
+/// This macro is designed for enums where each variant has associated configuration data and maps
+/// to a specific concrete type. Each variant must be annotated with the
+/// `#[concrete = "path::to::Type"]` attribute and contain a single tuple field
 /// that holds the configuration data for that concrete type.
 ///
+/// # Generated Code
+///
 /// The macro generates:
-/// 1. A `concrete_type_id` method that returns the `TypeId` of the concrete type for a variant
-/// 2. A `concrete_type_name` method that returns the name of the concrete type as a string
-/// 3. A `config` method that returns a reference to the configuration data
-/// 4. A macro with the snake_case name of the enum + "_config" (with "Config" suffix removed if present)
+/// 1. A `config` method that returns a reference to the configuration data
+/// 2. A macro with the snake_case name of the enum + "_config" (with "Config" suffix removed if present)
 ///    that allows access to both the concrete type and configuration data
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use concrete_type::ConcreteConfig;
+///
+/// // Define concrete types and configuration types
+/// struct BinanceConfig {
+///     api_key: String,
+/// }
+///
+/// struct Binance;
+///
+/// #[derive(ConcreteConfig)]
+/// enum ExchangeConfig {
+///     #[concrete = "Binance"]
+///     Binance(BinanceConfig),
+/// }
+///
+/// // Using the generated macro
+/// let config = ExchangeConfig::Binance(BinanceConfig { api_key: "key".to_string() });
+/// let result = exchange_config!(config; (Exchange, cfg) => {
+///     // Exchange is aliased to Binance
+///     // cfg is a reference to BinanceConfig
+///     format!("{} with key: {}", std::any::type_name::<Exchange>(), cfg.api_key)
+/// });
+/// ```
 #[proc_macro_derive(ConcreteConfig, attributes(concrete))]
 pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
@@ -280,26 +356,6 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate match arms for the concrete type ID
-    let match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => {
-                    type_id::<#concrete_type>()
-                }
-            }
-        });
-
-    // Generate match arms for the concrete type name
-    let type_name_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => type_name_of::<#concrete_type>()
-            }
-        });
-
     // Generate match arms for the config method
     let config_arms = variant_mappings
         .iter()
@@ -322,8 +378,6 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
             }
         });
 
-    // Create the macro name
-
     // Generate a top-level macro with the snake_case name of the enum + "_config"
     let macro_def = quote! {
         #[macro_export]
@@ -339,33 +393,7 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     // Generate the methods implementation
     let methods_impl = quote! {
         impl #type_name {
-            /// Returns the TypeId of the concrete type associated with this enum variant
-            pub fn concrete_type_id(&self) -> std::any::TypeId {
-                use std::any::TypeId;
-
-                fn type_id<T: 'static>() -> TypeId {
-                    TypeId::of::<T>()
-                }
-
-                match self {
-                    #(#match_arms),*
-                }
-            }
-
-            /// Returns the name of the concrete type associated with this enum variant
-            pub fn concrete_type_name(&self) -> &'static str {
-                use std::any::type_name;
-
-                fn type_name_of<T: 'static>() -> &'static str {
-                    type_name::<T>()
-                }
-
-                match self {
-                    #(#type_name_arms),*
-                }
-            }
-
-            // Get config data from the enum variant
+            /// Returns a reference to the configuration data associated with this enum variant
             pub fn config(&self) -> &dyn std::any::Any {
                 match self {
                     #(#config_arms),*

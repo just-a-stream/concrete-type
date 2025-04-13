@@ -17,6 +17,14 @@ fn main() {
     });
 
     assert_eq!(name, "binance");
+
+    let config = ExchangeConfig::Okx(exchanges::OkxConfig);
+
+    let name = exchange_config!(config; (Exchange, config_param) => {
+        Exchange::new(config_param).name()
+    });
+
+    assert_eq!(name, "okx");
 }
 
 mod exchanges {
