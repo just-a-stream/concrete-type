@@ -1,0 +1,16 @@
+[package]
+name = "concrete-type-rules"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["JustAStream"]
+description = "Rules and validation for concrete types"
+repository = "https://github.com/justastream/concrete-type"
+documentation = "https://docs.rs/concrete-type-rules"
+readme = "../README.md"
+keywords = ["enum", "type-level", "static-dispatch"]
+categories = ["rust-patterns"]
+
+[dependencies]
+concrete-type = { workspace = true }
+paste = { workspace = true }
