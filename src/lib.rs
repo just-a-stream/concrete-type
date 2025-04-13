@@ -87,38 +87,6 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate match arms for the concrete type mapping
-    let match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => {
-                    type_id::<#concrete_type>()
-                }
-            }
-        });
-
-    // Generate match arms for the concrete type name
-    let type_name_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => type_name_of::<#concrete_type>()
-            }
-        });
-
-    // Generate match arms for the concrete type aliases
-    let type_alias_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name => {
-                    type ConcreteType = #concrete_type;
-                    f()
-                }
-            }
-        });
-
     // Generate match arms for the macro_rules! version
     let macro_match_arms = variant_mappings
         .iter()
@@ -143,54 +111,10 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate the methods implementation
-    let methods_impl = quote! {
-        impl #type_name {
-            /// Returns the TypeId of the concrete type associated with this enum variant
-            pub fn concrete_type_id(&self) -> std::any::TypeId {
-                use std::any::TypeId;
-
-                fn type_id<T: 'static>() -> TypeId {
-                    TypeId::of::<T>()
-                }
-
-                match self {
-                    #(#match_arms),*
-                }
-            }
-
-            /// Returns the name of the concrete type associated with this enum variant
-            pub fn concrete_type_name(&self) -> &'static str {
-                use std::any::type_name;
-
-                fn type_name_of<T: 'static>() -> &'static str {
-                    type_name::<T>()
-                }
-
-                match self {
-                    #(#type_name_arms),*
-                }
-            }
-
-            /// Executes a function with the concrete type associated with this enum variant
-            pub fn with_concrete_type<F, R>(&self, f: F) -> R
-            where
-                F: for<'a> Fn() -> R,
-            {
-                match self {
-                    #(#type_alias_arms),*
-                }
-            }
-        }
-    };
-
     // Combine the macro definition and methods implementation
     let expanded = quote! {
         // Define the macro outside any module to make it directly accessible
         #macro_def
-
-        // Implement methods on the enum
-        #methods_impl
     };
 
     // Return the generated implementation
@@ -280,35 +204,6 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate match arms for the concrete type ID
-    let match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => {
-                    type_id::<#concrete_type>()
-                }
-            }
-        });
-
-    // Generate match arms for the concrete type name
-    let type_name_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(_) => type_name_of::<#concrete_type>()
-            }
-        });
-
-    // Generate match arms for the config method
-    let config_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, _concrete_type)| {
-            quote! {
-                #type_name::#variant_name(config) => config
-            }
-        });
-
     // Generate match arms for the macro_rules! version
     let macro_match_arms = variant_mappings
         .iter()
@@ -322,8 +217,6 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
             }
         });
 
-    // Create the macro name
-
     // Generate a top-level macro with the snake_case name of the enum + "_config"
     let macro_def = quote! {
         #[macro_export]
@@ -336,51 +229,10 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate the methods implementation
-    let methods_impl = quote! {
-        impl #type_name {
-            /// Returns the TypeId of the concrete type associated with this enum variant
-            pub fn concrete_type_id(&self) -> std::any::TypeId {
-                use std::any::TypeId;
-
-                fn type_id<T: 'static>() -> TypeId {
-                    TypeId::of::<T>()
-                }
-
-                match self {
-                    #(#match_arms),*
-                }
-            }
-
-            /// Returns the name of the concrete type associated with this enum variant
-            pub fn concrete_type_name(&self) -> &'static str {
-                use std::any::type_name;
-
-                fn type_name_of<T: 'static>() -> &'static str {
-                    type_name::<T>()
-                }
-
-                match self {
-                    #(#type_name_arms),*
-                }
-            }
-
-            // Get config data from the enum variant
-            pub fn config(&self) -> &dyn std::any::Any {
-                match self {
-                    #(#config_arms),*
-                }
-            }
-        }
-    };
-
     // Combine the macro definition and methods implementation
     let expanded = quote! {
         // Define the macro
         #macro_def
-
-        // Implement methods on the enum
-        #methods_impl
     };
 
     TokenStream::from(expanded)

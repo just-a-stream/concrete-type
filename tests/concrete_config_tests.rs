@@ -1,4 +1,3 @@
-use crate::exchanges::ExchangeApi;
 use concrete_type::ConcreteConfig;
 
 #[derive(ConcreteConfig)]
@@ -7,24 +6,6 @@ enum ExchangeConfig {
     Binance(exchanges::BinanceConfig),
     #[concrete = "exchanges::Okx"]
     Okx(exchanges::OkxConfig),
-}
-
-fn main() {
-    let config = ExchangeConfig::Binance(exchanges::BinanceConfig);
-
-    let name = exchange_config!(config; (Exchange, config_param) => {
-        Exchange::new(config_param).name()
-    });
-
-    assert_eq!(name, "binance");
-
-    let config = ExchangeConfig::Okx(exchanges::OkxConfig);
-
-    let name = exchange_config!(config; (Exchange, config_param) => {
-        Exchange::new(config_param).name()
-    });
-
-    assert_eq!(name, "okx");
 }
 
 mod exchanges {
@@ -66,4 +47,25 @@ mod exchanges {
     }
 
     pub struct OkxConfig;
+}
+
+#[test]
+fn test_concrete_config_dispatch() {
+    use exchanges::ExchangeApi;
+
+    let config = ExchangeConfig::Binance(exchanges::BinanceConfig);
+
+    let name = exchange_config!(config; (Exchange, config_param) => {
+        Exchange::new(config_param).name()
+    });
+
+    assert_eq!(name, "binance");
+
+    let config = ExchangeConfig::Okx(exchanges::OkxConfig);
+
+    let name = exchange_config!(config; (Exchange, config_param) => {
+        Exchange::new(config_param).name()
+    });
+
+    assert_eq!(name, "okx");
 }
