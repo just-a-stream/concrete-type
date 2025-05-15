@@ -64,7 +64,8 @@ enum StrategyKind {
 The `ConcreteConfig` derive macro is designed for enums where each variant has associated configuration data and maps to a specific concrete type.
 
 - Map enum variants with configuration data to concrete types
-- Each variant must have a single tuple field containing the configuration
+- Variants without configuration provided default to using the unit type `()`.
+- Variants with configuration must have a single field (not a tuple).
 - Generated methods:
   - `config()`: Returns a reference to the configuration data
 - Auto-generated macros for type-level dispatch with access to both the concrete type and config data
@@ -75,7 +76,9 @@ Example:
 #[derive(ConcreteConfig)]
 enum ExchangeConfig {
     #[concrete = "exchanges::Binance"]
-    Binance(exchanges::BinanceConfig),
+    Binance(exchanges::BinanceConfig),  // With config
+    #[concrete = "exchanges::Okx"]
+    Okx,                                // Without config (defaults to unit type)
 }
 
 // Generated macro is named 'exchange_config!'

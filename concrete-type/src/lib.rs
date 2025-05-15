@@ -249,13 +249,14 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 ///
 /// This macro is designed for enums where each variant has associated configuration data and maps
 /// to a specific concrete type. Each variant must be annotated with the
-/// `#[concrete = "path::to::Type"]` attribute and contain a single tuple field
-/// that holds the configuration data for that concrete type.
+/// `#[concrete = "path::to::Type"]` attribute and contain a single field (no tuples)
+/// that holds the configuration data for that concrete type. If the variant has no data, then it
+/// defaults to the unit type `()`.
 ///
 /// # Generated Code
 ///
 /// The macro generates:
-/// 1. A `config` method that returns a reference to the configuration data
+/// 1. A `config` method that returns a reference to the configuration data.
 /// 2. A macro with the snake_case name of the enum + "_config" (with "Config" suffix removed if present)
 ///    that allows access to both the concrete type and configuration data
 ///
@@ -265,24 +266,37 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 /// use concrete_type::ConcreteConfig;
 ///
 /// // Define concrete types and configuration types
+/// #[derive(Debug)]
 /// struct BinanceConfig {
 ///     api_key: String,
 /// }
 ///
 /// struct Binance;
 ///
+/// struct Okx;
+///
 /// #[derive(ConcreteConfig)]
 /// enum ExchangeConfig {
 ///     #[concrete = "Binance"]
 ///     Binance(BinanceConfig),
+///     #[concrete = "Okx"]
+///     Okx,
 /// }
 ///
-/// // Using the generated macro
+/// // Using the generated macro for a variant with config data
 /// let config = ExchangeConfig::Binance(BinanceConfig { api_key: "key".to_string() });
 /// let result = exchange_config!(config; (Exchange, cfg) => {
-///     // Exchange is aliased to Binance
-///     // cfg is a reference to BinanceConfig
-///     format!("{} with key: {}", std::any::type_name::<Exchange>(), cfg.api_key)
+///     // "Exchange" symbol is concrete type Binance
+///     // "cfg" symbol is a reference to the BinanceConfig instance
+///     format!("{} with config: {:?}", std::any::type_name::<Exchange>(), cfg)
+/// });
+///
+/// // Using the generated macro for a variant without config data
+/// let config = ExchangeConfig::Okx;
+/// let result = exchange_config!(config; (Exchange, cfg) => {
+///     // "Exchange" symbol is concrete type Okx
+///     // "cfg" symbol is a reference to the unit type () (since the Okx variant doesn't have config)
+///     format!("{} with config: {:?}", std::any::type_name::<Exchange>(), cfg)
 /// });
 /// ```
 #[proc_macro_derive(ConcreteConfig, attributes(concrete))]
@@ -318,6 +332,7 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     };
 
     // Extract variant names, their concrete types, and field types
+    // We now include a boolean flag to indicate if the variant has config data
     let mut variant_mappings = Vec::new();
 
     for variant in &data_enum.variants {
@@ -325,16 +340,21 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
 
         // Extract the concrete type path from the variant's attributes
         if let Some(concrete_type) = extract_concrete_type_path(&variant.attrs) {
-            // Verify the variant has a tuple field
+            // Check variant field type - now accepting both unit variants and single-field variants
             match &variant.fields {
                 Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                    variant_mappings.push((variant_name, concrete_type));
+                    // Variant with config data
+                    variant_mappings.push((variant_name, concrete_type, true));
+                }
+                Fields::Unit => {
+                    // Unit variant (no config data)
+                    variant_mappings.push((variant_name, concrete_type, false));
                 }
                 _ => {
                     return syn::Error::new_spanned(
                         variant_name,
                         format!(
-                            "Enum variant `{}` must have exactly one unnamed field for the config",
+                            "Enum variant `{}` must either be a unit variant or have exactly one unnamed field for config",
                             variant_name
                         ),
                     )
@@ -359,24 +379,41 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     // Generate match arms for the config method
     let config_arms = variant_mappings
         .iter()
-        .map(|(variant_name, _concrete_type)| {
-            quote! {
-                #type_name::#variant_name(config) => config
+        .map(|(variant_name, _concrete_type, has_config)| {
+            if *has_config {
+                quote! {
+                    #type_name::#variant_name(config) => config
+                }
+            } else {
+                quote! {
+                    #type_name::#variant_name => &() // Return unit type for variants w/o config
+                }
             }
         });
 
     // Generate match arms for the macro_rules! version
-    let macro_match_arms = variant_mappings
-        .iter()
-        .map(|(variant_name, concrete_type)| {
-            quote! {
-                #type_name::#variant_name(config) => {
-                    type $type_param = #concrete_type;
-                    let $config_param = config;
-                    $code_block
+    let macro_match_arms =
+        variant_mappings
+            .iter()
+            .map(|(variant_name, concrete_type, has_config)| {
+                if *has_config {
+                    quote! {
+                        #type_name::#variant_name(config) => {
+                            type $type_param = #concrete_type;
+                            let $config_param = config;
+                            $code_block
+                        }
+                    }
+                } else {
+                    quote! {
+                        #type_name::#variant_name => {
+                            type $type_param = #concrete_type;
+                            let $config_param = (); // Use unit type
+                            $code_block
+                        }
+                    }
                 }
-            }
-        });
+            });
 
     // Generate a top-level macro with the snake_case name of the enum + "_config"
     let macro_def = quote! {
@@ -394,6 +431,7 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
     let methods_impl = quote! {
         impl #type_name {
             /// Returns a reference to the configuration data associated with this enum variant
+            /// Unit variants return a reference to the unit type `()`
             pub fn config(&self) -> &dyn std::any::Any {
                 match self {
                     #(#config_arms),*
