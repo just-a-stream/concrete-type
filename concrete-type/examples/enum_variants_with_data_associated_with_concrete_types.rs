@@ -6,7 +6,7 @@ enum ExchangeConfig {
     #[concrete = "exchanges::Binance"]
     Binance(exchanges::BinanceConfig),
     #[concrete = "exchanges::Okx"]
-    Okx(exchanges::OkxConfig),
+    Okx,
 }
 
 fn main() {
@@ -18,7 +18,7 @@ fn main() {
 
     assert_eq!(name, "binance");
 
-    let config = ExchangeConfig::Okx(exchanges::OkxConfig);
+    let config = ExchangeConfig::Okx;
 
     let name = exchange_config!(config; (Exchange, config_param) => {
         Exchange::new(config_param).name()
@@ -54,7 +54,7 @@ mod exchanges {
     pub struct Okx;
 
     impl ExchangeApi for Okx {
-        type Config = OkxConfig;
+        type Config = ();
 
         fn new(_: Self::Config) -> Self {
             Self
@@ -64,6 +64,4 @@ mod exchanges {
             "okx"
         }
     }
-
-    pub struct OkxConfig;
 }
