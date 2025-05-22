@@ -1,11 +1,11 @@
 [package]
 name = "concrete-type"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 license = "MIT"
 authors = ["JustAStream"]
 description = "A procedural macro crate for mapping enum variants to concrete types, enabling type-level programming based on runtime values"
-repository = "https://github.com/justastream/concrete-type"
+repository = "https://github.com/just-a-stream/concrete-type"
 documentation = "https://docs.rs/concrete-type"
 readme = "README.md"
 keywords = ["macros", "enum", "type-level", "proc-macro", "static-dispatch"]
