@@ -27,7 +27,7 @@ Add the crates you need to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Core procedural macros
-concrete-type = "0.2.0"
+concrete-type = "0.3.0"
 
 # Optional utilities for working with multiple concrete enums
 concrete-type-rules = "0.1.0"
@@ -42,9 +42,9 @@ use concrete_type::Concrete;
 
 #[derive(Concrete, Clone, Copy)]
 enum Exchange {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance,
-    #[concrete = "exchanges::Coinbase"]
+    #[concrete = "crate::exchanges::Coinbase"]
     Coinbase,
 }
 
@@ -101,7 +101,7 @@ mod exchanges {
 // Define the enum with concrete type mappings and config data
 #[derive(ConcreteConfig)]
 enum ExchangeConfig {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance(exchanges::BinanceConfig),
 }
 
@@ -129,13 +129,13 @@ use std::marker::PhantomData;
 // Define multiple enum types with concrete type mappings
 #[derive(Concrete, Clone, Copy)]
 enum Exchange {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance,
 }
 
 #[derive(Concrete, Clone, Copy)]
 enum Strategy {
-    #[concrete = "strategies::StrategyA"]
+    #[concrete = "crate::strategies::StrategyA"]
     StrategyA,
 }
 

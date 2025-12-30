@@ -1,6 +1,6 @@
 [package]
 name = "concrete-type"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 authors = ["JustAStream"]
@@ -18,3 +18,4 @@ proc-macro = true
 syn  = { workspace = true }
 quote = { workspace = true }
 convert_case  = { workspace = true }
+proc-macro2 = { workspace = true }

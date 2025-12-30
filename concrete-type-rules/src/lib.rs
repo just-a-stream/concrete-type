@@ -24,13 +24,13 @@
 //!
 //! #[derive(Concrete)]
 //! enum Exchange {
-//!     #[concrete = "exchanges::Binance"]
+//!     #[concrete = "crate::exchanges::Binance"]
 //!     Binance,
 //! }
 //!
 //! #[derive(Concrete)]
 //! enum Strategy {
-//!     #[concrete = "strategies::StrategyA"]
+//!     #[concrete = "crate::strategies::StrategyA"]
 //!     StrategyA,
 //! }
 //!
@@ -102,13 +102,13 @@
 ///
 /// #[derive(Concrete, Clone, Copy)]
 /// enum Exchange {
-///     #[concrete = "BinanceType"]
+///     #[concrete = "crate::BinanceType"]
 ///     Binance,
 /// }
 ///
 /// #[derive(Concrete)]
 /// enum Strategy {
-///     #[concrete = "StrategyAType"]
+///     #[concrete = "crate::StrategyAType"]
 ///     StrategyA,
 /// }
 ///

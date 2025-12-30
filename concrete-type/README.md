@@ -33,10 +33,20 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-concrete-type = "0.2.0"
+concrete-type = "0.3.0"
 ```
 
 ## Features
+
+### Path Resolution
+
+When specifying concrete types in the `#[concrete = "..."]` attribute:
+
+- **Use `crate::path::to::Type`** for types defined in the same crate as the enum.
+  The macro transforms this to `$crate::path::to::Type` for proper macro hygiene,
+  allowing the generated macro to work both within the defining crate and from external crates.
+
+- **Use `other_crate::path::to::Type`** for types from external crates (used as-is).
 
 ### `#[derive(Concrete)]`
 
@@ -50,9 +60,9 @@ Example:
 ```rust
 #[derive(Concrete)]
 enum StrategyKind {
-    #[concrete = "strategies::StrategyA"]
+    #[concrete = "crate::strategies::StrategyA"]
     StrategyA,
-    #[concrete = "strategies::StrategyB"]
+    #[concrete = "crate::strategies::StrategyB"]
     StrategyB,
 }
 
@@ -75,9 +85,9 @@ Example:
 ```rust
 #[derive(ConcreteConfig)]
 enum ExchangeConfig {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance(exchanges::BinanceConfig),  // With config
-    #[concrete = "exchanges::Okx"]
+    #[concrete = "crate::exchanges::Okx"]
     Okx,                                // Without config (defaults to unit type)
 }
 
@@ -93,9 +103,9 @@ use concrete_type::Concrete;
 
 #[derive(Concrete, Clone, Copy)]
 enum Exchange {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance,
-    #[concrete = "exchanges::Coinbase"]
+    #[concrete = "crate::exchanges::Coinbase"]
     Coinbase,
 }
 
@@ -152,7 +162,7 @@ mod exchanges {
 // Define the enum with concrete type mappings and config data
 #[derive(ConcreteConfig)]
 enum ExchangeConfig {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance(exchanges::BinanceConfig),
 }
 
