@@ -3,10 +3,12 @@ use concrete_type::ConcreteConfig;
 
 #[derive(ConcreteConfig)]
 enum ExchangeConfig {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance(exchanges::BinanceConfig),
-    #[concrete = "exchanges::Okx"]
+    #[concrete = "crate::exchanges::Okx"]
     Okx,
+    #[concrete = "crate::exchanges::Bitmart<crate::exchanges::BitmartSpotServer>"]
+    Bitmart(exchanges::BitmartConfig),
 }
 
 fn main() {
@@ -25,6 +27,14 @@ fn main() {
     });
 
     assert_eq!(name, "okx");
+
+    let config = ExchangeConfig::Bitmart(exchanges::BitmartConfig);
+
+    let name = exchange_config!(config; (Exchange, config_param) => {
+        Exchange::new(config_param).name()
+    });
+
+    assert_eq!(name, "bitmart");
 }
 
 mod exchanges {
@@ -64,4 +74,25 @@ mod exchanges {
             "okx"
         }
     }
+
+    pub struct BitmartSpotServer;
+    pub struct Bitmart<Server> {
+        _phantom: std::marker::PhantomData<Server>,
+    }
+
+    impl ExchangeApi for Bitmart<BitmartSpotServer> {
+        type Config = BitmartConfig;
+
+        fn new(_: Self::Config) -> Self {
+            Self {
+                _phantom: std::marker::PhantomData,
+            }
+        }
+
+        fn name(&self) -> &'static str {
+            "bitmart"
+        }
+    }
+
+    pub struct BitmartConfig;
 }

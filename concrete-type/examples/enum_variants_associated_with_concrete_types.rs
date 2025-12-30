@@ -7,24 +7,31 @@ use std::marker::PhantomData;
 
 #[derive(Concrete, Clone, Copy)]
 enum Exchange {
-    #[concrete = "exchanges::Binance"]
+    #[concrete = "crate::exchanges::Binance"]
     Binance,
-    #[concrete = "exchanges::Okx"]
+    #[concrete = "crate::exchanges::Okx"]
     Okx,
+    #[concrete = "crate::exchanges::Kraken<crate::exchanges::KrakenSpotServer>"]
+    Kraken,
 }
 
 mod exchanges {
     pub struct Binance;
 
     pub struct Okx;
+
+    pub struct KrakenSpotServer;
+    pub struct Kraken<Server> {
+        pub _phantom: std::marker::PhantomData<Server>,
+    }
 }
 
 #[derive(Concrete)]
 enum Strategy {
-    #[concrete = "strategies::StrategyA"]
+    #[concrete = "crate::strategies::StrategyA"]
     StrategyA,
 
-    #[concrete = "strategies::StrategyB"]
+    #[concrete = "crate::strategies::StrategyB"]
     StrategyB,
 }
 
@@ -58,6 +65,16 @@ fn main() {
         })
     });
     assert_eq!(name, "okx_strategy_b");
+
+    let exchange = Exchange::Kraken;
+    let strategy = Strategy::StrategyA;
+
+    let name = exchange!(exchange; Exchange => {
+        strategy!(strategy; Strategy => {
+            TradingSystem::<Exchange, Strategy>::new().name()
+        })
+    });
+    assert_eq!(name, "kraken_strategy_a");
 }
 
 impl TradingSystem<Binance, StrategyA> {
@@ -105,5 +122,31 @@ impl TradingSystem<Okx, StrategyB> {
 
     pub fn name(&self) -> &'static str {
         "okx_strategy_b"
+    }
+}
+
+use crate::exchanges::{Kraken, KrakenSpotServer};
+
+impl TradingSystem<Kraken<KrakenSpotServer>, StrategyA> {
+    pub fn new() -> Self {
+        Self {
+            phantom: Default::default(),
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        "kraken_strategy_a"
+    }
+}
+
+impl TradingSystem<Kraken<KrakenSpotServer>, StrategyB> {
+    pub fn new() -> Self {
+        Self {
+            phantom: Default::default(),
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        "kraken_strategy_b"
     }
 }

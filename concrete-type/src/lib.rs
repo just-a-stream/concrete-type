@@ -15,6 +15,17 @@
 //! helper methods and macros that provide access to the concrete types associated with
 //! enum variants.
 //!
+//! ## Path Resolution
+//!
+//! When specifying concrete types, you can use two path formats:
+//!
+//! - `crate::path::to::Type` - Use this for types defined in the same crate as the enum.
+//!   The macro will transform this to `$crate::path::to::Type` for proper hygiene,
+//!   allowing the generated macro to work both within the defining crate and from external crates.
+//!
+//! - `other_crate::path::to::Type` - Use this for types from external crates.
+//!   The path is used as-is.
+//!
 //! ## Examples
 //!
 //! ### Basic Usage with `Concrete`
@@ -24,21 +35,21 @@
 //!
 //! #[derive(Concrete, Clone, Copy)]
 //! enum Exchange {
-//!     #[concrete = "exchanges::Binance"]
+//!     #[concrete = "crate::exchanges::Binance"]
 //!     Binance,
-//!     #[concrete = "exchanges::Coinbase"]
+//!     #[concrete = "crate::exchanges::Coinbase"]
 //!     Coinbase,
 //! }
 //!
 //! mod exchanges {
 //!     pub struct Binance;
 //!     pub struct Coinbase;
-//!     
+//!
 //!     impl Binance {
 //!         pub fn new() -> Self { Binance }
 //!         pub fn name(&self) -> &'static str { "binance" }
 //!     }
-//!     
+//!
 //!     impl Coinbase {
 //!         pub fn new() -> Self { Coinbase }
 //!         pub fn name(&self) -> &'static str { "coinbase" }
@@ -48,7 +59,7 @@
 //! // Use the auto-generated exchange! macro for type-level dispatch
 //! let exchange = Exchange::Binance;
 //! let name = exchange!(exchange; ExchangeImpl => {
-//!     // ExchangeImpl is aliased to the concrete type (exchanges::Binance)
+//!     // ExchangeImpl is aliased to the concrete type
 //!     let instance = ExchangeImpl::new();
 //!     instance.name()
 //! });
@@ -83,7 +94,7 @@
 //! // Define the enum with concrete type mappings and config data
 //! #[derive(ConcreteConfig)]
 //! enum ExchangeConfig {
-//!     #[concrete = "exchanges::Binance"]
+//!     #[concrete = "crate::exchanges::Binance"]
 //!     Binance(exchanges::BinanceConfig),
 //! }
 //!
@@ -94,7 +105,7 @@
 //!
 //! let name = exchange_config!(config; (Exchange, cfg) => {
 //!     // Inside this block:
-//!     // - Exchange is the concrete type (exchanges::Binance)
+//!     // - Exchange is the concrete type
 //!     // - cfg is the configuration instance (BinanceConfig)
 //!     use exchanges::ExchangeApi;
 //!     Exchange::new(cfg).name()
@@ -126,11 +137,137 @@ fn extract_concrete_type_path(attrs: &[Attribute]) -> Option<syn::Path> {
     None
 }
 
+/// Transforms a path for use in generated macro code.
+///
+/// If the path starts with `crate::`, it transforms to `$crate::` for proper
+/// macro hygiene. This allows the generated macro to work correctly both within
+/// the defining crate and from external crates.
+///
+/// This function also recursively transforms any `crate::` paths inside generic
+/// arguments (e.g., `Wrapper<crate::inner::Type>` becomes `Wrapper<$crate::inner::Type>`).
+///
+/// Paths that don't start with `crate::` are returned as-is (after processing their generics).
+fn transform_path_for_macro(path: &syn::Path) -> proc_macro2::TokenStream {
+    let starts_with_crate = path
+        .segments
+        .first()
+        .map(|s| s.ident == "crate")
+        .unwrap_or(false);
+
+    // Process each segment, transforming generic arguments recursively
+    let transformed_segments: Vec<proc_macro2::TokenStream> = path
+        .segments
+        .iter()
+        .enumerate()
+        .filter_map(|(i, segment)| {
+            // Skip the leading `crate` segment if present
+            if starts_with_crate && i == 0 {
+                return None;
+            }
+
+            let ident = &segment.ident;
+            let args = transform_path_arguments(&segment.arguments);
+
+            Some(quote! { #ident #args })
+        })
+        .collect();
+
+    if starts_with_crate && !transformed_segments.is_empty() {
+        quote! { $crate :: #(#transformed_segments)::* }
+    } else if transformed_segments.is_empty() {
+        // Path was just `crate` with no following segments - unusual but handle it
+        quote! { #path }
+    } else {
+        quote! { #(#transformed_segments)::* }
+    }
+}
+
+/// Transform path arguments (generic parameters), recursively handling nested `crate::` paths.
+fn transform_path_arguments(args: &syn::PathArguments) -> proc_macro2::TokenStream {
+    match args {
+        syn::PathArguments::None => quote! {},
+        syn::PathArguments::AngleBracketed(angle) => {
+            let transformed_args: Vec<proc_macro2::TokenStream> = angle
+                .args
+                .iter()
+                .map(|arg| match arg {
+                    syn::GenericArgument::Type(ty) => transform_type(ty),
+                    syn::GenericArgument::Lifetime(lt) => quote! { #lt },
+                    syn::GenericArgument::Const(expr) => quote! { #expr },
+                    other => quote! { #other },
+                })
+                .collect();
+            quote! { < #(#transformed_args),* > }
+        }
+        syn::PathArguments::Parenthesized(paren) => {
+            let inputs: Vec<_> = paren.inputs.iter().map(transform_type).collect();
+            let output = match &paren.output {
+                syn::ReturnType::Default => quote! {},
+                syn::ReturnType::Type(arrow, ty) => {
+                    let transformed = transform_type(ty);
+                    quote! { #arrow #transformed }
+                }
+            };
+            quote! { ( #(#inputs),* ) #output }
+        }
+    }
+}
+
+/// Transform a type, recursively handling `crate::` paths within.
+fn transform_type(ty: &syn::Type) -> proc_macro2::TokenStream {
+    match ty {
+        syn::Type::Path(type_path) => {
+            let transformed = transform_path_for_macro(&type_path.path);
+            if let Some(qself) = &type_path.qself {
+                let qself_ty = transform_type(&qself.ty);
+                quote! { < #qself_ty > :: #transformed }
+            } else {
+                transformed
+            }
+        }
+        syn::Type::Reference(ref_type) => {
+            let lifetime = &ref_type.lifetime;
+            let mutability = &ref_type.mutability;
+            let elem = transform_type(&ref_type.elem);
+            quote! { & #lifetime #mutability #elem }
+        }
+        syn::Type::Tuple(tuple) => {
+            let elems: Vec<_> = tuple.elems.iter().map(transform_type).collect();
+            quote! { ( #(#elems),* ) }
+        }
+        syn::Type::Slice(slice) => {
+            let elem = transform_type(&slice.elem);
+            quote! { [ #elem ] }
+        }
+        syn::Type::Array(array) => {
+            let elem = transform_type(&array.elem);
+            let len = &array.len;
+            quote! { [ #elem ; #len ] }
+        }
+        syn::Type::Ptr(ptr) => {
+            let mutability = if ptr.mutability.is_some() {
+                quote! { mut }
+            } else {
+                quote! { const }
+            };
+            let elem = transform_type(&ptr.elem);
+            quote! { * #mutability #elem }
+        }
+        // For other types, just quote them as-is
+        other => quote! { #other },
+    }
+}
+
 /// A derive macro that implements the mapping between enum variants and concrete types.
 ///
 /// This macro is designed for enums where each variant maps to a specific concrete type.
 /// Each variant must be annotated with the `#[concrete = "path::to::Type"]` attribute that
 /// specifies the concrete type that the variant represents.
+///
+/// # Path Resolution
+///
+/// - Use `crate::path::to::Type` for types in the same crate (transforms to `$crate::`)
+/// - Use `other_crate::path::to::Type` for types from external crates (used as-is)
 ///
 /// # Generated Code
 ///
@@ -145,9 +282,9 @@ fn extract_concrete_type_path(attrs: &[Attribute]) -> Option<syn::Path> {
 ///
 /// #[derive(Concrete)]
 /// enum StrategyKind {
-///     #[concrete = "strategies::StrategyA"]
+///     #[concrete = "crate::strategies::StrategyA"]
 ///     StrategyA,
-///     #[concrete = "strategies::StrategyB"]
+///     #[concrete = "crate::strategies::StrategyB"]
 ///     StrategyB,
 /// }
 ///
@@ -214,9 +351,10 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
     let macro_match_arms = variant_mappings
         .iter()
         .map(|(variant_name, concrete_type)| {
+            let transformed_path = transform_path_for_macro(concrete_type);
             quote! {
                 #type_name::#variant_name => {
-                    type $type_param = #concrete_type;
+                    type $type_param = #transformed_path;
                     $code_block
                 }
             }
@@ -252,6 +390,11 @@ pub fn derive_concrete(input: TokenStream) -> TokenStream {
 /// `#[concrete = "path::to::Type"]` attribute and contain a single field (no tuples)
 /// that holds the configuration data for that concrete type. If the variant has no data, then it
 /// defaults to the unit type `()`.
+///
+/// # Path Resolution
+///
+/// - Use `crate::path::to::Type` for types in the same crate (transforms to `$crate::`)
+/// - Use `other_crate::path::to::Type` for types from external crates (used as-is)
 ///
 /// # Generated Code
 ///
@@ -358,8 +501,8 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
                             variant_name
                         ),
                     )
-                    .to_compile_error()
-                    .into();
+                        .to_compile_error()
+                        .into();
                 }
             }
         } else {
@@ -396,10 +539,11 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
         variant_mappings
             .iter()
             .map(|(variant_name, concrete_type, has_config)| {
+                let transformed_path = transform_path_for_macro(concrete_type);
                 if *has_config {
                     quote! {
                         #type_name::#variant_name(config) => {
-                            type $type_param = #concrete_type;
+                            type $type_param = #transformed_path;
                             let $config_param = config;
                             $code_block
                         }
@@ -407,7 +551,7 @@ pub fn derive_concrete_config(input: TokenStream) -> TokenStream {
                 } else {
                     quote! {
                         #type_name::#variant_name => {
-                            type $type_param = #concrete_type;
+                            type $type_param = #transformed_path;
                             let $config_param = (); // Use unit type
                             $code_block
                         }
